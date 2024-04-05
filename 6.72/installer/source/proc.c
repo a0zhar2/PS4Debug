@@ -11,21 +11,26 @@
 // it's a shell
 #define nlPrintf(...)
 
-
+// Find a certain Process by Name, and if found, return it as
+// a new <proc> struct instance
 struct proc *proc_find_by_name(const char *name) {
-    struct proc *p;
+    // If the given <name> argument is invalid then return early
+    if (!name) return NULL;
 
-    if (!name) {
-        return NULL;
-    }
+    // Otherwise, create a new <proc> structure instance
+    struct proc *p = *allproc;
 
-    p = *allproc;
-    do {
-        if (!memcmp(p->p_comm, name, strlen(name))) {
+    // Go trough each process, until the right process is found 
+    while((p = p->p_forw)){
+        // If the name of the current selected process, matches
+        // the requested process name given by <name>, then we
+        // return that process
+        if (!memcmp(p->p_comm, name, strlen(name))) 
             return p;
-        }
-    } while ((p = p->p_forw));
-
+    }
+    
+    // If the requested process wasn't found, we return NULL
+    // indicating error
     return NULL;
 }
 
