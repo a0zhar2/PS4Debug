@@ -21,14 +21,14 @@ struct proc *proc_find_by_name(const char *name) {
     struct proc *p = *allproc;
 
     // Go trough each process, until the right process is found 
-    while((p = p->p_forw)){
+    while ((p = p->p_forw)) {
         // If the name of the current selected process, matches
         // the requested process name given by <name>, then we
         // return that process
-        if (!memcmp(p->p_comm, name, strlen(name))) 
+        if (!memcmp(p->p_comm, name, strlen(name)))
             return p;
     }
-    
+
     // If the requested process wasn't found, we return NULL
     // indicating error
     return NULL;
@@ -114,7 +114,7 @@ int proc_rw_mem(struct proc *p, void *ptr, uint64_t size, void *data, uint64_t *
     if (size == 0) {
         // Update bytes read/written (if pointer provided)
         if (n) *n = 0;
-        
+
         // Then return early
         return 0;
     }
@@ -139,7 +139,7 @@ int proc_rw_mem(struct proc *p, void *ptr, uint64_t size, void *data, uint64_t *
 
     // TODO: Comment this line
     if (n) *n = (uint64_t)((uint64_t)size - uio.uio_resid);
-    
+
     return result;
 }
 
@@ -327,7 +327,7 @@ int proc_create_thread(struct proc *p, uint64_t address) {
     if (result) {
         goto error;
     }
-    
+
     result = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, scePthreadAttrInit), sizeof(_scePthreadAttrInit), (void *)&_scePthreadAttrInit, &n);
     if (result) {
         goto error;
@@ -361,21 +361,21 @@ int proc_create_thread(struct proc *p, uint64_t address) {
     uint8_t ldrdone = 0;
     while (!ldrdone) {
         result = proc_read_mem(p, (void *)(rpcldraddr + offsetof(struct rpcldr_header, ldrdone)), sizeof(ldrdone), &ldrdone, &n);
-        if (result) { 
+        if (result) {
             goto error;
         }
     }
 
-error:;
-    // Deallocate the memory allocated for entries
+    error:;
+        // Deallocate the memory allocated for entries
     if (entries) free(entries, M_TEMP);
 
     // Deallocate the memory allocated for the RPC-Loader in the process?
     if (rpcldraddr) proc_deallocate(p, rpcldraddr, ldrsize);
-    
+
     // Deallocate the memory allocated for stack inside the process?
     if (stackaddr) proc_deallocate(p, stackaddr, stacksize);
-    
+
     // Return the Result code
     return result;
 }
