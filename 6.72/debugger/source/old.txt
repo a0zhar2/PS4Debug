@@ -1,0 +1,407 @@
+
+// TODO:
+// Implement an optimized version of previous proc_scan_compareValues function
+BOOL proc_scan_compareValues_v2(
+   CMD_PROC_SCAN_CMPTYPE cmpType, CMD_PROC_SCAN_VALTYPE valType, size_t valTypeLength,
+   PUCHAR pScanValue, PUCHAR pMemoryValue, PUCHAR pExtraValue) {
+
+   switch (cmpType) {
+      // In case of the a (bigger than x) scan is being done
+      case cmpTypeBiggerThan:
+         switch (valType) {
+            case valTypeUInt8:
+            case valTypeInt8:
+            case valTypeUInt16:
+            case valTypeInt16:
+            case valTypeUInt32:
+            case valTypeInt32:
+            case valTypeUInt64:
+            case valTypeInt64:
+            case valTypeFloat:
+            case valTypeDouble:
+               return memcmp(pMemoryValue, pScanValue, valTypeLength) > 0;
+         }
+         break;
+         // In case of the a (smaller than x) scan is being done
+      case cmpTypeSmallerThan:
+         return memcmp(pMemoryValue, pScanValue, valTypeLength) < 0;
+         // In case of the a (between x and y) scan is being done
+      case cmpTypeValueBetween:
+         return memcmp(pMemoryValue, pScanValue, valTypeLength) > 0 &&
+            memcmp(pMemoryValue, pExtraValue, valTypeLength) < 0;
+         // In case of the a (increased since last scan) scan is being done
+      case cmpTypeIncreasedValue:
+         return memcmp(pMemoryValue, pExtraValue, valTypeLength) > 0;
+   }
+}
+
+#define FD_ZERO(s)     do { int __i; unsigned long *__b=(s)->fds_bits; for(__i=sizeof (fd_set)/sizeof (long); __i; __i--) *__b++=0; } while(0)
+#define FD_SET(d, s)   ((s)->fds_bits[(d)/(8*sizeof(long))] |= (1UL<<((d)%(8*sizeof(long)))))
+#define FD_CLR(d, s)   ((s)->fds_bits[(d)/(8*sizeof(long))] &= ~(1UL<<((d)%(8*sizeof(long)))))
+#define FD_ISSET(d, s) !!((s)->fds_bits[(d)/(8*sizeof(long))] & (1UL<<((d)%(8*sizeof(long)))))
+
+{
+         BOOL isFound = FALSE;
+         for (size_t j = 0; j < valTypeLength - 1; j++) {
+            isFound = (pScanValue[j] == pMemoryValue[j]);
+            if (!isFound)
+               break;
+         }
+         return isFound;
+      }
+
+      
+
+
+// Function to handle scanning of the requested process, for example: values
+int proc_scan_handle(int fd, struct cmd_packet *packet) {
+   PROCESS_SCAN_PACKET *sp;
+   size_t szValueLen;
+   BYTE *data;
+
+   // Extract the command packet data
+   sp = (PROCESS_SCAN_PACKET *)packet->data;
+   if (!sp) {
+      net_send_status(fd, CMD_DATA_NULL);
+      return 1;
+   }
+
+   // Get the size of the requested value, and if the value type
+   // is not supported, assign the value of data length from the
+   // <sp> struct instance to it instead.
+   szValueLen = get_size_of_value_type(sp->valueType);
+   if (!szValueLen) {
+      szValueLen = sp->lenData;
+   }
+
+   // Try to allocate memory the size of <lenData>, and prefault it.
+   // If an error occures we return early
+   data = (BYTE *)pfmalloc(sp->lenData);
+   if (!data) {
+      net_send_status(fd, CMD_DATA_NULL);
+      return 1;
+   }
+
+   net_send_status(fd, CMD_SUCCESS);
+   net_recv_data(fd, data, sp->lenData, 1);
+
+   // query for the process id
+   struct sys_proc_vm_map_args args;
+   memset(&args, NULL, sizeof(struct sys_proc_vm_map_args));
+   if (sys_proc_cmd(sp->pid, SYS_PROC_VM_MAP, &args)) {
+      free(data);
+      net_send_status(fd, CMD_ERROR);
+      return 1;
+   }
+
+   size_t size = args.num * sizeof(struct proc_vm_map_entry);
+   args.maps = (struct proc_vm_map_entry *)pfmalloc(size);
+   if (!args.maps) {
+      free(data);
+      net_send_status(fd, CMD_DATA_NULL);
+      return 1;
+   }
+
+   if (sys_proc_cmd(sp->pid, SYS_PROC_VM_MAP, &args)) {
+      free(args.maps);
+      free(data);
+      net_send_status(fd, CMD_ERROR);
+      return 1;
+   }
+
+   net_send_status(fd, CMD_SUCCESS);
+
+   uprintf("scan start");
+
+   unsigned char *pExtraValue = szValueLen == sp->lenData ? NULL : &data[szValueLen];
+   unsigned char *scanBuffer = (unsigned char *)pfmalloc(PAGE_SIZE);
+   for (size_t i = 0; i < args.num; i++) {
+      // Check if the Section does not have Read Permissions, and
+      // if that's the case, skip it
+      if ((args.maps[i].prot & PROT_READ) != PROT_READ)
+         continue;
+
+
+      uint64_t sectionStartAddr = args.maps[i].start;
+      size_t sectionLen = args.maps[i].end - sectionStartAddr;
+
+      // scan
+      for (uint64_t j = 0; j < sectionLen; j += szValueLen) {
+         if (j == 0 || !(j % PAGE_SIZE)) {
+            sys_proc_rw(sp->pid, sectionStartAddr, scanBuffer, PAGE_SIZE, 0);
+         }
+
+         uint64_t scanOffset = j % PAGE_SIZE;
+         uint64_t curAddress = sectionStartAddr + j;
+         if (proc_scan_compareValues(sp->compareType, sp->valueType, szValueLen, data, scanBuffer + scanOffset, pExtraValue)) {
+            net_send_data(fd, &curAddress, sizeof(uint64_t));
+         }
+      }
+   }
+
+   uprintf("scan done");
+
+   uint64_t endflag = 0xFFFFFFFFFFFFFFFF;
+   net_send_data(fd, &endflag, sizeof(uint64_t));
+
+   free(scanBuffer);
+   free(args.maps);
+   free(data);
+
+   return 0;
+}
+
+// Function to handle scanning of the requested process
+int proc_scan_handle(int fd, struct cmd_packet *packet) {
+    struct cmd_proc_scan_packet *sp;
+    size_t szValueLen;
+    BYTE *scanBuffer;
+    BYTE *data;
+
+    // Extract the command packet data
+    sp = (struct cmd_proc_scan_packet *)packet->data;
+    if (!sp) {
+        net_send_status(fd, CMD_DATA_NULL);
+        return 1;
+    }
+
+    // Get the size of the requested value type
+    szValueLen = get_size_of_value_type(sp->valueType);
+    if (!szValueLen) {
+        // If value type not supported, use data length from packet
+        szValueLen = sp->lenData;
+    }
+
+    // Allocate memory for the data
+    data = (BYTE *)pfmalloc(sp->lenData);
+    if (!data) {
+        // If memory allocation failed, send error status and return
+        net_send_status(fd, CMD_DATA_NULL);
+        return 1;
+    }
+
+    // Receive data from the network
+    net_send_status(fd, CMD_SUCCESS);
+    net_recv_data(fd, data, sp->lenData, 1);
+
+    // Query for the process memory maps
+    struct sys_proc_vm_map_args args;
+    memset(&args, 0, sizeof(struct sys_proc_vm_map_args));
+    args.maps = NULL;
+
+    // Check If command execution failed, and if so, free memory
+    // send error code, and return early
+    if (sys_proc_cmd(sp->pid, SYS_PROC_VM_MAP, &args)) {
+        net_send_status(fd, CMD_ERROR);
+        free(data);
+        return 1;
+    }
+
+    // Allocate memory for memory maps, and check if memory allocation
+    // failed, and if that's the case, free previous memory, send the
+    // <DATA NULL> message, and return early
+    size_t size = args.num * sizeof(struct proc_vm_map_entry);
+    args.maps = (struct proc_vm_map_entry *)pfmalloc(size);
+    if (!args.maps) {
+        free(data);
+        net_send_status(fd, CMD_DATA_NULL);
+        return 1;
+    }
+
+    // Retrieve memory maps, and check If command execution failed, if
+    // that's the case then, free the allocated memory for both:
+    // args::maps, and data, then send <ERROR> code, and return early
+    if (sys_proc_cmd(sp->pid, SYS_PROC_VM_MAP, &args)) {
+        free(args.maps);
+        free(data);
+        net_send_status(fd, CMD_ERROR);
+        return 1;
+    }
+
+    // Send success status
+    net_send_status(fd, CMD_SUCCESS);
+
+    // Allocate buffer for scanning, and check If memory allocation failed,
+    // if this is the case, then deallocate the memory used by args::maps,
+    // and data, then send <DATA NULL> code, before returning early
+    scanBuffer = (BYTE*)pfmalloc(PAGE_SIZE);
+    if (!scanBuffer) {
+        free(args.maps);
+        free(data);
+        net_send_status(fd, CMD_DATA_NULL);
+        return 1;
+    }
+
+    // Inform the start of the scanning process
+    uprintf("Beginning to Scan!");
+
+    // Start Performing the scanning
+    for (size_t i = 0; i < args.num; i++) {
+        // Check if the current section (being scanned) does not have read
+        // permissions, and if true, skip it
+        if ((args.maps[i].prot & PROT_READ) != PROT_READ) 
+            continue;
+
+        uint64_t sectionStartAddr = args.maps[i].start;
+        size_t sectionLen = args.maps[i].end - sectionStartAddr;
+
+        // Scan each section
+        for (uint64_t j = 0; j < sectionLen; j += szValueLen) {
+            if (j == 0 || !(j % PAGE_SIZE)) {
+                // Read a page of memory if necessary
+                sys_proc_rw(sp->pid, sectionStartAddr + j, scanBuffer, PAGE_SIZE, 0);
+            }
+
+            uint64_t scanOffset = j % PAGE_SIZE;
+            uint64_t curAddress = sectionStartAddr + j;
+
+            // Compare the scanned value with the requested value
+            if (proc_scan_compareValues(sp->compareType, sp->valueType, szValueLen, data, scanBuffer + scanOffset)) {
+                // If matched, send the address over the network
+                net_send_data(fd, &curAddress, sizeof(uint64_t));
+            }
+        }
+    }
+
+    // Inform the end of the scanning process
+    uprintf("Scan Finished!");
+
+    // Send end flag to mark the completion of data transmission
+    uint64_t endflag = 0xFFFFFFFFFFFFFFFF;
+    net_send_data(fd, &endflag, sizeof(uint64_t));
+
+    // Free allocated memory
+    free(scanBuffer);
+    free(args.maps);
+    free(data);
+
+    return 0;
+}
+
+// Function to handle scanning of the requested process
+int proc_scan_handle(int fd, struct cmd_packet *packet) {
+   struct cmd_proc_scan_packet *sp;
+   size_t szValueLen;
+   BYTE *scanBuffer;
+   BYTE *data;
+
+   // Extract the command packet data
+   sp = (struct cmd_proc_scan_packet *)packet->data;
+   if (!sp) {
+      net_send_status(fd, CMD_DATA_NULL);
+      return 1;
+   }
+
+   // Get the size of the requested value type
+   szValueLen = get_size_of_value_type(sp->valueType);
+   if (!szValueLen) {
+      // If value type not supported, use data length from packet
+      szValueLen = sp->lenData;
+   }
+
+   // Allocate memory for the data
+   data = (BYTE *)pfmalloc(sp->lenData);
+   if (!data) {
+      // If memory allocation failed, send error status and return
+      net_send_status(fd, CMD_DATA_NULL);
+      return 1;
+   }
+
+   net_send_status(fd, CMD_SUCCESS);
+   
+   // Receive data from the network
+   net_recv_data(fd, data, sp->lenData, 1);
+
+   // Query for the process memory maps
+   struct sys_proc_vm_map_args args;
+   memset(&args, 0, sizeof(struct sys_proc_vm_map_args));
+   args.maps = NULL;
+   
+   // Check If command execution failed, and if so, free memory 
+   // send error code, and return early
+   if (sys_proc_cmd(sp->pid, SYS_PROC_VM_MAP, &args)) {
+      net_send_status(fd, CMD_ERROR);
+      free(data);
+      return 1;
+   }
+
+   // Allocate memory for memory maps, and check if memory allocation 
+   // failed, and if that's the case, free previous memory, send the
+   // <DATA NULL> message, and return early
+   size_t size = args.num * sizeof(struct proc_vm_map_entry);
+   args.maps = (struct proc_vm_map_entry *)pfmalloc(size);
+   if (!args.maps) {
+      free(data);
+      net_send_status(fd, CMD_DATA_NULL);
+      return 1;
+   }
+
+   // Retrieve memory maps, and check If command execution failed, if
+   // that's the case then, free the allocated memory for both:
+   // args::maps, and data, then send <ERROR> code, and return early
+   if (sys_proc_cmd(sp->pid, SYS_PROC_VM_MAP, &args)) {
+      free(args.maps);
+      free(data);
+      net_send_status(fd, CMD_ERROR);
+      return 1;
+   }
+
+   // Send success status
+   net_send_status(fd, CMD_SUCCESS);
+
+   // Allocate buffer for scanning, and check If memory allocation failed, 
+   // if this is the case, then deallocate the memory used by args::maps,
+   // and data, then send <DATA NULL> code, before returning early
+   scanBuffer = (BYTE*)pfmalloc(PAGE_SIZE);
+   if (!scanBuffer) {
+      free(args.maps);
+      free(data);
+      net_send_status(fd, CMD_DATA_NULL);
+      return 1;
+   }
+
+   // Inform the start of the scanning process
+   uprintf("Beginning to Scan!");
+
+   // Start Performing the scanning
+   for (size_t i = 0; i < args.num; i++) {
+      // Check if the current section (being scanned) does not have read
+      // permissions, and if true, skip it
+      if ((args.maps[i].prot & PROT_READ) != PROT_READ) 
+         continue;
+
+      uint64_t sectionStartAddr = args.maps[i].start;
+      size_t sectionLen = args.maps[i].end - sectionStartAddr;
+
+      // Scan each section
+      for (uint64_t j = 0; j < sectionLen; j += szValueLen) {
+         if (j == 0 || !(j % PAGE_SIZE)) {
+             // Read a page of memory if necessary
+            sys_proc_rw(sp->pid, sectionStartAddr + j, scanBuffer, PAGE_SIZE, 0);
+         }
+
+         uint64_t scanOffset = j % PAGE_SIZE;
+         uint64_t curAddress = sectionStartAddr + j;
+         
+         // Compare the scanned value with the requested value
+         if (proc_scan_compareValues(sp->compareType, sp->valueType, szValueLen, data, scanBuffer + scanOffset, pExtraValue)) {
+             // If matched, send the address over the network
+            net_send_data(fd, &curAddress, sizeof(uint64_t));
+         }
+      }
+   }
+
+   // Inform the end of the scanning process
+   uprintf("Scan Finished!");
+
+   // Send end flag to mark the completion of data transmission
+   uint64_t endflag = 0xFFFFFFFFFFFFFFFF;
+   net_send_data(fd, &endflag, sizeof(uint64_t));
+
+   // Free allocated memory
+   free(scanBuffer);
+   free(args.maps);
+   free(data);
+
+   return 0;
+}
