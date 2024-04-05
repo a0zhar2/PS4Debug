@@ -121,15 +121,15 @@ int proc_rw_mem(struct proc *p, void *ptr, uint64_t size, void *data, uint64_t *
 
     // Initialize the iov structure with the data buffer and size
     memset(&iov, NULL, sizeof(iov));
-    iov.iov_base = data; // Set iov_base to the data buffer
+    iov.iov_base = (uint64_t)data; // Set iov_base to the data buffer
     iov.iov_len = size;  // Set iov_len to the size of the data
 
     // Initialize the uio structure with iov, pointer, size, and flags
     memset(&uio, NULL, sizeof(uio));
-    uio.uio_iov = &iov;                        // Set uio_iov to point to the iov structure
+    uio.uio_iov = (uint64_t)&iov;                        // Set uio_iov to point to the iov structure
     uio.uio_iovcnt = 1;                        // Set uio_iovcnt to 1
     uio.uio_offset = (uint64_t)ptr;            // Set uio_offset to the pointer
-    uio.uio_resid = size;                      // Set uio_resid to the size of the data
+    uio.uio_resid = (uint64_t)size;                      // Set uio_resid to the size of the data
     uio.uio_segflg = UIO_SYSSPACE;             // Set uio_segflg to indicate system space
     uio.uio_rw = write ? UIO_WRITE : UIO_READ; // Set uio_rw to indicate read or write operation
     uio.uio_td = td;                           // Set uio_td to the current thread
