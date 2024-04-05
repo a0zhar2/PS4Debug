@@ -1,2 +1,5 @@
-# PS4Debug
- My own fork of GiantPluto's PS4Debug Repository. This will be maintained, and worked on by Me (A0zhar2) 
+# PS4Debug (A PS4 Debugging Tool)
+
+At the moment, only firmware 6.72 is supported... But i am adding support for, firmware: **5.05, 7.02, 7.55** soon.
+
+
