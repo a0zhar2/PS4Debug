@@ -4,12 +4,7 @@
 // - Forked/Currently maintained by Me (A0ZHAR)
 //---------------------------------------------------------
 
-#include "../../libPS4/include/kernel.h"
-#include "../../libPS4/include/libc.h"
-#include "../../libPS4/include/pthread.h"
-#include "../../libPS4/include/network.h"
-#include "../../libPS4/include/sysutil.h"
-#include "../../libPS4/include/file.h"
+#include "../../libPS4/include/ps4.h"
 
 #include "../include/ptrace.h"
 #include "../include/server.h"

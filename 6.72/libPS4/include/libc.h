@@ -2,8 +2,8 @@
 
 #ifndef LIBC_H
 #define LIBC_H
-
 #include "types.h"
+#include <stdarg.h>
 
 typedef struct DIR DIR;
 typedef int FILE;
@@ -85,6 +85,7 @@ extern int (*fseek)(FILE *stream, long int offset, int origin);
 extern long int (*ftell)(FILE *stream);
 extern int (*fclose)(FILE *stream);
 extern int (*fprintf)(FILE *stream, const char *format, ...);
+extern int (*vfprintf)(FILE *restrict stream, const char *restrict format, va_list ap);
 
 int memset_s(void *s, rsize_t smax, int c, rsize_t n);
 

@@ -78,6 +78,7 @@ int (*fseek)(FILE *stream, long int offset, int origin);
 long int (*ftell)(FILE *stream);
 int (*fclose)(FILE *stream);
 int (*fprintf)(FILE *stream, const char *format, ...);
+int (*vfprintf)(FILE *restrict stream, const char *restrict format, va_list ap);
 
 int memset_s(void *s, rsize_t smax, int c, rsize_t n) {
   bool violation = (s == NULL) || (smax > RSIZE_MAX) || (n > RSIZE_MAX) || (n > smax);
@@ -130,6 +131,7 @@ void initLibc(void) {
   RESOLVE(libc, strchr);
   RESOLVE(libc, strrchr);
   RESOLVE(libc, strstr);
+  RESOLVE(libc, vfprintf);
   RESOLVE(libc, strdup);
   RESOLVE(libc, strtok);
   RESOLVE(libc, index);
