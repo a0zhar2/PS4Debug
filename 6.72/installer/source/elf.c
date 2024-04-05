@@ -137,11 +137,11 @@ int load_elf(void *elf, uint64_t size, void *exec, uint64_t msize, void **entry)
 
     if (s > msize)          return LDR_SIZE_ERROR;
     if (map_elf(elf, exec)) return LDR_MAP_ERROR;
-    
+
 
     if (relocate_elf(elf, exec))
         return LDR_RELOC_ERROR;
-    
+
 
     if (entry) {
         *entry = (void *)((uint64_t)exec + ehdr->e_entry);
@@ -152,7 +152,7 @@ int load_elf(void *elf, uint64_t size, void *exec, uint64_t msize, void **entry)
 
 
 struct Elf64_Phdr *elf_pheader(struct Elf64_Ehdr *hdr) {
-    if (!hdr->e_phoff) 
+    if (!hdr->e_phoff)
         return 0;
 
     return (struct Elf64_Phdr *)((uint64_t)hdr + hdr->e_phoff);
@@ -166,7 +166,7 @@ struct Elf64_Phdr *elf_segment(struct Elf64_Ehdr *hdr, int idx) {
 }
 
 struct Elf64_Shdr *elf_sheader(struct Elf64_Ehdr *hdr) {
-    if (!hdr->e_shoff) 
+    if (!hdr->e_shoff)
         return 0;
 
     return (struct Elf64_Shdr *)((uint64_t)hdr + hdr->e_shoff);

@@ -201,7 +201,6 @@ struct Elf64_Phdr *elf_segment(struct Elf64_Ehdr *hdr, int idx);
 struct Elf64_Shdr *elf_sheader(struct Elf64_Ehdr *hdr);
 struct Elf64_Shdr *elf_section(struct Elf64_Ehdr *hdr, int idx);
 
-int elf_mapped_size(void *elf, uint64_t *msize);
 
 // functions
 // elf - data where elf is stored
@@ -209,5 +208,6 @@ int elf_mapped_size(void *elf, uint64_t *msize);
 // exec - memory allocated RWX
 // msize - size of the allocated memory
 int load_elf(void *elf, uint64_t size, void *exec, uint64_t msize, void **entry);
+int elf_mapped_size(void *elf, uint64_t *msize);
 
 #endif

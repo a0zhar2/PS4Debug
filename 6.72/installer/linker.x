@@ -3,16 +3,14 @@ OUTPUT_ARCH(i386:x86-64)
 
 ENTRY(_start)
 
-PHDRS
-{
+PHDRS {
     code_seg PT_LOAD;
     rdata_seg PT_LOAD;
     data_seg PT_LOAD;
     bss_seg PT_LOAD;
 }
 
-SECTIONS
-{
+SECTIONS {
     . = 0x926200000;
     .text : {
         *(.text.start)
