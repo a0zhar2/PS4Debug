@@ -5,7 +5,7 @@
 //---------------------------------------------------------
 
 
-#include "../include/installer.h"
+#include "../include/../include/installer.h"
 
 extern uint8_t kernelelf[];
 extern int32_t kernelelf_size;

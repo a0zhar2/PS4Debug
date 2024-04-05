@@ -5,7 +5,7 @@
 //---------------------------------------------------------
 
 
-#include "elf.h"
+#include "../include/elf.h"
 
 int elf_mapped_size(void *elf, uint64_t *msize) {
     struct Elf64_Ehdr *ehdr = (struct Elf64_Ehdr *)elf;

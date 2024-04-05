@@ -5,7 +5,7 @@
 //---------------------------------------------------------
 
 
-#include "proc.h"
+#include "../include/proc.h"
 
 struct proc *proc_find_by_name(const char *name) {
     struct proc *p;
