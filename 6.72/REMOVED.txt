@@ -1,0 +1,14 @@
+
+    // offsets are for 5.05 libraries
+
+    // libkernel.sprx
+    // 0x12AA0 scePthreadCreate
+    // 0x84C20 thr_initial
+
+    // libkernel_web.sprx
+    // 0x98C0 scePthreadCreate
+    // 0x84C20 thr_initial
+
+    // libkernel_sys.sprx
+    // 0x135D0 scePthreadCreate
+    // 0x89030 thr_initial

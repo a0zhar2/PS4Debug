@@ -7,6 +7,11 @@
 
 #include "../include/proc.h"
 
+// This can be made into a working function, but for now
+// it's a shell
+#define nlPrintf(...)
+
+
 struct proc *proc_find_by_name(const char *name) {
     struct proc *p;
 
@@ -208,81 +213,94 @@ int proc_mprotect(struct proc *p, void *address, void *end, int new_prot) {
     return r;
 }
 
+// Function to create a new thread for a certain Process
+// @param p       Pointer to Process Struct
+// @param address Address of the function to be executed in the new thread?
 int proc_create_thread(struct proc *p, uint64_t address) {
-    void *rpcldraddr = NULL;
-    void *stackaddr = NULL;
-    struct proc_vm_map_entry *entries = NULL;
-    uint64_t num_entries = 0;
-    uint64_t n = 0;
-    int r = 0;
+    void *rpcldraddr = NULL; // Address of the allocated space for RPC loader
+    void *stackaddr = NULL; // Address of the allocated stack space
+    struct proc_vm_map_entry *entries = NULL; // Entries of process memory mappings
+    uint64_t num_entries = 0; // Number of memory map entries
+    uint64_t n = 0; // Number of bytes read or written
+    int result = 0; // Result variable
 
+    // Calculate the size of the RPC loader
     uint64_t ldrsize = sizeof(rpcldr);
     ldrsize += (PAGE_SIZE - (ldrsize % PAGE_SIZE));
 
+    // Define the size of the stack
     uint64_t stacksize = 0x80000;
 
-    // allocate rpc ldr
-    r = proc_allocate(p, &rpcldraddr, ldrsize);
-    if (r) {
+    // Allocate memory for RPC loader
+    result = proc_allocate(p, &rpcldraddr, ldrsize);
+    if (result) {
+        nlPrintf("Unable to Allocate memory for RPC Loader!");
         goto error;
     }
 
-    // allocate stack
-    r = proc_allocate(p, &stackaddr, stacksize);
-    if (r) {
+   // Allocate memory for stack
+    result = proc_allocate(p, &stackaddr, stacksize);
+    if (result) {
+        nlPrintf("Unable to allocate memory for Stack");;
         goto error;
     }
 
-    // write loader
-    r = proc_write_mem(p, rpcldraddr, sizeof(rpcldr), (void *)rpcldr, &n);
-    if (r) {
+    // Write RPC loader to allocated memory
+    result = proc_write_mem(p, rpcldraddr, sizeof(rpcldr), (void *)rpcldr, &n);
+    if (result) {
+        nlPrintf("Unable to write RPC loader to allocated memory");
         goto error;
     }
 
-    // donor thread
+    // Get the first thread of the process (donor thread?)
     struct thread *thr = TAILQ_FIRST(&p->p_threads);
 
-    // find libkernel base
-    r = proc_get_vm_map(p, &entries, &num_entries);
-    if (r) {
+    // Get the memory map entries of the process
+    result = proc_get_vm_map(p, &entries, &num_entries);
+    if (result) {
         goto error;
     }
 
-    // offsets are for 5.05 libraries
+    uint64_t _scePthreadAttrInit = 0;
+    uint64_t _scePthreadAttrSetstacksize = 0;
+    uint64_t _scePthreadCreate = 0;
+    uint64_t _thr_initial = 0;
 
-    // libkernel.sprx
-    // 0x12AA0 scePthreadCreate
-    // 0x84C20 thr_initial
-
-    // libkernel_web.sprx
-    // 0x98C0 scePthreadCreate
-    // 0x84C20 thr_initial
-
-    // libkernel_sys.sprx
-    // 0x135D0 scePthreadCreate
-    // 0x89030 thr_initial
-
-    uint64_t _scePthreadAttrInit = 0, _scePthreadAttrSetstacksize = 0, _scePthreadCreate = 0, _thr_initial = 0;
+    // Find addresses of relevant functions in memory map entries
     for (int i = 0; i < num_entries; i++) {
-        if (entries[i].prot != (PROT_READ | PROT_EXEC)) {
+        // If the current entry's protection doesn't allow for 
+        // Reading and Executing Memory, skip it
+        if (entries[i].prot != (PROT_READ | PROT_EXEC))
             continue;
-        }
 
+        // If the name of the current selected entry is the same as the
+        // PS4 libkernel system module 
         if (!memcmp(entries[i].name, "libkernel.sprx", 14)) {
+            // Find addresses of relevant functions from the module
+            // then exit the for-loop
             _scePthreadAttrInit = entries[i].start + 0x00013A40;
             _scePthreadAttrSetstacksize = entries[i].start + 0x00013A60;
             _scePthreadCreate = entries[i].start + 0x00013E80;
             _thr_initial = entries[i].start + 0x00435420;
             break;
         }
+
+        // If the name of the current selected entry is the same as the
+        // PS4 libkernel_web system module 
         if (!memcmp(entries[i].name, "libkernel_web.sprx", 18)) {
+            // Find addresses of relevant functions from the module
+            // then exit the for-loop
             _scePthreadAttrInit = entries[i].start + 0x0001FD20;
             _scePthreadAttrSetstacksize = entries[i].start + 0x00010540;
             _scePthreadCreate = entries[i].start + 0x0000A0F0;
             _thr_initial = entries[i].start + 0x00435420;
             break;
         }
+        // If the name of the current selected entry is the same as the
+        // PS4 libkernel_sys system module 
         if (!memcmp(entries[i].name, "libkernel_sys.sprx", 18)) {
+            // Find addresses of relevant functions from the module
+            // then exit the for-loop
             _scePthreadAttrInit = entries[i].start + 0x00014570;
             _scePthreadAttrSetstacksize = entries[i].start + 0x00014590;
             _scePthreadCreate = entries[i].start + 0x000149B0;
@@ -290,68 +308,67 @@ int proc_create_thread(struct proc *p, uint64_t address) {
             break;
         }
     }
-
+    // Check if function addresses were found
     if (!_scePthreadAttrInit) {
         goto error;
     }
 
-    // write variables
-    r = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, stubentry), sizeof(address), (void *)&address, &n);
-    if (r) {
+    // Write variable values to RPC loader memory
+    result = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, stubentry), sizeof(address), (void *)&address, &n);
+    if (result) {
+        goto error;
+    }
+    
+    result = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, scePthreadAttrInit), sizeof(_scePthreadAttrInit), (void *)&_scePthreadAttrInit, &n);
+    if (result) {
         goto error;
     }
 
-    r = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, scePthreadAttrInit), sizeof(_scePthreadAttrInit), (void *)&_scePthreadAttrInit, &n);
-    if (r) {
+    result = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, scePthreadAttrSetstacksize), sizeof(_scePthreadAttrSetstacksize), (void *)&_scePthreadAttrSetstacksize, &n);
+    if (result) {
         goto error;
     }
 
-    r = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, scePthreadAttrSetstacksize), sizeof(_scePthreadAttrSetstacksize), (void *)&_scePthreadAttrSetstacksize, &n);
-    if (r) {
+    result = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, scePthreadCreate), sizeof(_scePthreadCreate), (void *)&_scePthreadCreate, &n);
+    if (result) {
         goto error;
     }
 
-    r = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, scePthreadCreate), sizeof(_scePthreadCreate), (void *)&_scePthreadCreate, &n);
-    if (r) {
+    result = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, thr_initial), sizeof(_thr_initial), (void *)&_thr_initial, &n);
+    if (result) {
         goto error;
     }
 
-    r = proc_write_mem(p, rpcldraddr + offsetof(struct rpcldr_header, thr_initial), sizeof(_thr_initial), (void *)&_thr_initial, &n);
-    if (r) {
-        goto error;
-    }
-
-    // execute loader
+    // Execute the loader in a new thread
     // note: do not enter in the pid information as it expects it to be stored in userland
     uint64_t ldrentryaddr = (uint64_t)rpcldraddr + *(uint64_t *)(rpcldr + 4);
-    r = create_thread(thr, NULL, (void *)ldrentryaddr, NULL, stackaddr, stacksize, NULL, NULL, NULL, 0, NULL);
-    if (r) {
+    result = create_thread(thr, NULL, (void *)ldrentryaddr, NULL, stackaddr, stacksize, NULL, NULL, NULL, 0, NULL);
+    if (result) {
+        nlPrintf("Unable to execute the loader in new thread");
         goto error;
     }
 
-    // wait until loader is done
+    // Wait until loader is done
     uint8_t ldrdone = 0;
     while (!ldrdone) {
-        r = proc_read_mem(p, (void *)(rpcldraddr + offsetof(struct rpcldr_header, ldrdone)), sizeof(ldrdone), &ldrdone, &n);
-        if (r) {
+        result = proc_read_mem(p, (void *)(rpcldraddr + offsetof(struct rpcldr_header, ldrdone)), sizeof(ldrdone), &ldrdone, &n);
+        if (result) { 
             goto error;
         }
     }
 
-    error:
-    if (entries) {
-        free(entries, M_TEMP);
-    }
+error:;
+    // Deallocate the memory allocated for entries
+    if (entries) free(entries, M_TEMP);
 
-    if (rpcldraddr) {
-        proc_deallocate(p, rpcldraddr, ldrsize);
-    }
-
-    if (stackaddr) {
-        proc_deallocate(p, stackaddr, stacksize);
-    }
-
-    return r;
+    // Deallocate the memory allocated for the RPC-Loader in the process?
+    if (rpcldraddr) proc_deallocate(p, rpcldraddr, ldrsize);
+    
+    // Deallocate the memory allocated for stack inside the process?
+    if (stackaddr) proc_deallocate(p, stackaddr, stacksize);
+    
+    // Return the Result code
+    return result;
 }
 
 int proc_map_elf(struct proc *p, void *elf, void *exec) {
@@ -378,10 +395,10 @@ int proc_map_elf(struct proc *p, void *elf, void *exec) {
 
             if (shdr->sh_size) {
                 proc_write_mem(
-                    p, 
-                    (void *)((uint8_t *)exec + shdr->sh_addr), 
-                    shdr->sh_size, 
-                    (void *)((uint8_t *)elf + shdr->sh_offset), 
+                    p,
+                    (void *)((uint8_t *)exec + shdr->sh_addr),
+                    shdr->sh_size,
+                    (void *)((uint8_t *)elf + shdr->sh_offset),
                     NULL
                 );
             }
