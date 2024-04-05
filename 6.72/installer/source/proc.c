@@ -68,6 +68,7 @@ int proc_get_vm_map(struct proc *p, struct proc_vm_map_entry **entries, uint64_t
         goto error;
     }
 
+    // Iterate over each entry and copy relevant information
     for (int i = 0; i < num; i++) {
         info[i].start = entry->start;
         info[i].end = entry->end;
@@ -75,9 +76,9 @@ int proc_get_vm_map(struct proc *p, struct proc_vm_map_entry **entries, uint64_t
         info[i].prot = entry->prot & (entry->prot >> 8);
         memcpy(info[i].name, entry->name, sizeof(info[i].name));
 
-        if (!(entry = entry->next)) {
+        // If no more entries, exit loop
+        if (!(entry = entry->next))
             break;
-        }
     }
 
     error:
@@ -95,43 +96,46 @@ int proc_get_vm_map(struct proc *p, struct proc_vm_map_entry **entries, uint64_t
 }
 
 int proc_rw_mem(struct proc *p, void *ptr, uint64_t size, void *data, uint64_t *n, int write) {
-    struct thread *td = curthread();
-    struct iovec iov;
-    struct uio uio;
-    int r = 0;
+    struct thread *td = curthread(); // Get the current thread
+    struct iovec iov;                // Define an iovec structure for scatter/gather I/O operations
+    struct uio uio;                  // Define a uio structure for user I/O operations
+    int result = 0;                  // Return value
 
-    if (!p) {
-        return 1;
-    }
+    // Check if the process pointer is invalid, and if so
+    // return early
+    if (!p) return 1;
 
+    // Check if the size of data is zero
     if (size == 0) {
-        if (n) {
-            *n = 0;
-        }
-
+        // Update bytes read/written (if pointer provided)
+        if (n) *n = 0;
+        
+        // Then return early
         return 0;
     }
 
+    // Initialize the iov structure with the data buffer and size
     memset(&iov, NULL, sizeof(iov));
-    iov.iov_base = (uint64_t)data;
-    iov.iov_len = size;
+    iov.iov_base = data; // Set iov_base to the data buffer
+    iov.iov_len = size;  // Set iov_len to the size of the data
 
+    // Initialize the uio structure with iov, pointer, size, and flags
     memset(&uio, NULL, sizeof(uio));
-    uio.uio_iov = (uint64_t)&iov;
-    uio.uio_iovcnt = 1;
-    uio.uio_offset = (uint64_t)ptr;
-    uio.uio_resid = (uint64_t)size;
-    uio.uio_segflg = UIO_SYSSPACE;
-    uio.uio_rw = write ? UIO_WRITE : UIO_READ;
-    uio.uio_td = td;
+    uio.uio_iov = &iov;                        // Set uio_iov to point to the iov structure
+    uio.uio_iovcnt = 1;                        // Set uio_iovcnt to 1
+    uio.uio_offset = (uint64_t)ptr;            // Set uio_offset to the pointer
+    uio.uio_resid = size;                      // Set uio_resid to the size of the data
+    uio.uio_segflg = UIO_SYSSPACE;             // Set uio_segflg to indicate system space
+    uio.uio_rw = write ? UIO_WRITE : UIO_READ; // Set uio_rw to indicate read or write operation
+    uio.uio_td = td;                           // Set uio_td to the current thread
 
-    r = proc_rwmem(p, &uio);
+    // TODO: Comment this line
+    result = proc_rwmem(p, &uio);
 
-    if (n) {
-        *n = (uint64_t)((uint64_t)size - uio.uio_resid);
-    }
-
-    return r;
+    // TODO: Comment this line
+    if (n) *n = (uint64_t)((uint64_t)size - uio.uio_resid);
+    
+    return result;
 }
 
 inline int proc_read_mem(struct proc *p, void *ptr, uint64_t size, void *data, uint64_t *n) {
